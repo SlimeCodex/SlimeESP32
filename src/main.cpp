@@ -1,38 +1,51 @@
-// simple_stream: this example code shows how to create and publish data to two simple monitors
+// simple_stream: this example show how to send and receive data from multiple consoles
 
+#include <WiFi.h>
 #include <SmartSyncEvent.h>
 #include <SkyStreamConsole.h>
 
-// Deps for the random generator
-#include <cstdlib>
-#include <ctime>
-
 // Initialize consoles and handler
-SkyStreamConsole monitor_core("Core Monitor");
-SkyStreamConsole monitor_wifi("WiFi Monitor");
+SkyStreamConsole console_core("Core Console");
+SkyStreamConsole console_wifi("WiFi Console");
 SSCHandler ssc_handler;
 
-// 10 Digits random number generator for the example
-unsigned long long generateRandom10DigitNumber() {
-    unsigned long long number = rand() % 9 + 1;
-    for (int i = 1; i < 10; ++i) {
-        number = number * 10 + (rand() % 10);
-    }
-    return number;
-}
-
 void setup() {
+	Serial.begin(115200);
+	Serial.println("Boot!");
+
 	// Generate consoles
 	ssc_handler.begin();
-	ssc_handler.add(monitor_core);
-	ssc_handler.add(monitor_wifi);
+	ssc_handler.add(console_core);
+	ssc_handler.add(console_wifi);
 	ssc_handler.start();
 }
 
 void loop() {
-	// Print to consoles time and random data
-	if (SYNC_EVENT(100)) {
-		monitor_core.printf("%lu Core Monitor Data: %llu\n", millis(), generateRandom10DigitNumber());
-		monitor_wifi.printf("%lu WiFi Monitor Data: %llu\n", millis(), generateRandom10DigitNumber());
+
+	// Simple periodic hello world
+	if (SYNC_EVENT(500)) {
+		console_core.printf("%lu > Core: Hello World !!\n", millis());
+		console_wifi.printf("%lu > Wifi: Hello World !!\n", millis());
+	}
+
+	// Check for incoming commands
+	if (console_core.available()) {
+		std::string com = console_core.read();
+
+		if (com == "reset") {
+			console_core.printf("%lu > Restarting MCU\n", millis());
+		}
+		if (com == "get_mac") {
+			console_core.printf("%lu > FF:FF:FF:FF:FF:FF\n", millis());
+		}
+	}
+
+	// Check for incoming commands
+	if (console_wifi.available()) {
+		std::string com = console_wifi.read();
+		
+		if (com == "connect") {
+			console_wifi.printf("%lu > Connecting to WiFi...\n", millis());
+		}
 	}
 }
