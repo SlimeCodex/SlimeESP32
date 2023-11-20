@@ -26,6 +26,14 @@ void loop() {
 		console_hello.printf("%lu > Hello World !!\n", millis());
 	}
 
+	if (console_hello.available()) {
+		std::string com = console_hello.read();
+		
+		if (com == "hello") {
+			console_hello.singlef("%lu > hello !!\n", millis());
+		}
+	}
+
 	// Check for incoming commands
 	if (console_core.available()) {
 		std::string com = console_core.read();
@@ -42,9 +50,9 @@ void loop() {
 			std::string progress_bar;
 			for (int i = 0; i <= 100; i++) {
 				progress_bar.clear();
-				progress_bar.append(i/2, 'l');
+				progress_bar.append(i/2, '|');
 				progress_bar.append(50 - i/2, ' ');
-				console_core.singlef("%lu > Loading data [%s] %d%%\n", millis(), progress_bar.c_str(), i);
+				console_core.singlef("%lu > Loading data |%s| %d%%\n", millis(), progress_bar.c_str(), i);
 				delay(20);
 			}
 		}
