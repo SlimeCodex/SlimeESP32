@@ -4,15 +4,19 @@
 #include <SmartSyncEvent.h>
 #include <SkyStreamConsole.h>
 
-// Initialize consoles and handler
+// Initialize consoles
+SkyStreamHandler ssc_handler;
+SkyStreamConsole console_ota("OTA");
 SkyStreamConsole console_core("Core Console");
 SkyStreamConsole console_wifi("WiFi Console");
 SkyStreamConsole console_hello("Hello Console");
-SSCHandler ssc_handler;
 
 void setup() {
+	Serial.begin(115200);
+
 	// Generate consoles
 	ssc_handler.begin();
+	ssc_handler.ota(console_ota);
 	ssc_handler.add(console_core);
 	ssc_handler.add(console_wifi);
 	ssc_handler.add(console_hello);
@@ -43,6 +47,7 @@ void loop() {
 		}
 		if (com == "reset") {
 			console_core.printf("%lu > Restarting MCU\n", millis());
+			ESP.restart();
 		}
 
 		// Simple progress bar
@@ -67,6 +72,13 @@ void loop() {
 		}
 		if (com == "disconnect") {
 			console_wifi.printf("%lu > Disconnected\n", millis());
+		}
+	}
+
+	// Check for OTA update
+	if (console_ota.available()) {
+		if (console_ota.update()) {
+			// Reset from command
 		}
 	}
 }
