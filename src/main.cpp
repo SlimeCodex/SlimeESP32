@@ -77,8 +77,12 @@ void loop() {
 
 	// Check for OTA update
 	if (console_ota.available()) {
-		if (console_ota.update()) {
-			// Reset from command
+		if (console_ota.download()) {
+			if (console_ota.update()) {
+				console_core.printf("%lu > Update successful\n", millis());
+			} else {
+				console_core.printf("%lu > Update failed\n", millis());
+			}
 		}
 	}
 }

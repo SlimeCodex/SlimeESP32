@@ -21,10 +21,7 @@
 
 #include <Arduino.h>
 
-#include <BLE2902.h>
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
+#include <NimBLEDevice.h>
 
 #include <cstdarg>
 #include <sstream>
@@ -47,18 +44,19 @@ public:
 	void start();
 
 private:
-	BLEServer* pServer;
+	NimBLEServer* pServer;
 	std::vector<std::reference_wrapper<SkyStreamConsole>> consoles;
 };
 
 class SkyStreamConsole {
 public:
 	SkyStreamConsole(const std::string& monitorName);
-	void start(BLEServer* existingServer);
+	void start(NimBLEServer* existingServer);
 	int createService();
 	void printf(const char* format, ...);
 	void singlef(const char* format, ...);
 	bool available();
+	bool download();
 	bool update();
 	void setNewDataAvailable(bool available);
 	std::string read(char delimiter = '\n');
@@ -68,17 +66,17 @@ private:
 	friend class SkyStreamHandler;
 	
 	struct ServiceCharacteristics {
-		BLECharacteristic* txCharacteristic;
-		BLECharacteristic* txsCharacteristic;
-		BLECharacteristic* rxCharacteristic;
+		NimBLECharacteristic* txCharacteristic;
+		NimBLECharacteristic* txsCharacteristic;
+		NimBLECharacteristic* rxCharacteristic;
 	};
 
 	std::string monitorName;
 	static int serviceCount;
 	int serviceID;
 
-	BLEServer* pServer;
-	BLEService* pService;
+	NimBLEServer* pServer;
+	NimBLEService* pService;
 
 	std::atomic<bool> newDataAvailable{false};
 	std::map<int, ServiceCharacteristics> services;

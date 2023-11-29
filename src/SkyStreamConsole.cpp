@@ -17,25 +17,27 @@
  */
 
 #include <SkyStreamConsole.h>
+#include "FS.h"
+#include "SPIFFS.h"
 
 // Callback Connection per server
-class SSCCallbacks : public BLEServerCallbacks {
-	void onConnect(BLEServer* pServer) override {
-		Serial.println(pServer->getPeerMTU(pServer->getConnId()));
+class SSCCallbacks : public NimBLEServerCallbacks {
+	void onConnect(NimBLEServer* pServer) {
+		// Handle connection
 	}
-	void onDisconnect(BLEServer* pServer) override {
+	void onDisconnect(NimBLEServer* pServer) {
 		pServer->startAdvertising(); // Restart advertising on disconnect
 	}
 };
 
 // Callback RX per console
-class RxCharacteristicCallbacks : public BLECharacteristicCallbacks {
+class RxCharacteristicCallbacks : public NimBLECharacteristicCallbacks {
 	SkyStreamConsole* console;
 
 public:
 	RxCharacteristicCallbacks(SkyStreamConsole* console) : console(console) {
 	}
-	void onWrite(BLECharacteristic* pCharacteristic, esp_ble_gatts_cb_param_t* param) override {
+	void onWrite(NimBLECharacteristic* pCharacteristic) {
 		if (console) {
 			console->setNewDataAvailable(true);
 		}
@@ -48,7 +50,7 @@ SkyStreamHandler::SkyStreamHandler() {
 
 // Begin: Initialize BLE
 void SkyStreamHandler::begin() {
-	BLEDevice::init("SkyStreamConsole");
+	NimBLEDevice::init("SkyStreamConsole");
 }
 
 // Add OTA console to global map
@@ -63,13 +65,13 @@ void SkyStreamHandler::add(SkyStreamConsole& console) {
 
 // Start: Start BLE server and advertising
 void SkyStreamHandler::start() {
-	pServer = BLEDevice::createServer();
+	pServer = NimBLEDevice::createServer();
 	pServer->setCallbacks(new SSCCallbacks());
 
 	for (auto& console : consoles) {
 		console.get().start(pServer);
 	}
-	BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
+	NimBLEAdvertising* pAdvertising = NimBLEDevice::getAdvertising();
 	pAdvertising->start();
 }
 
@@ -79,7 +81,7 @@ SkyStreamConsole::SkyStreamConsole(const std::string& monitorName) : pServer(nul
 int SkyStreamConsole::serviceCount = 0;
 
 // Start: Create server and service
-void SkyStreamConsole::start(BLEServer* existingServer) {
+void SkyStreamConsole::start(NimBLEServer* existingServer) {
 	if (existingServer != nullptr) {
 		pServer = existingServer;
 	}
@@ -98,35 +100,36 @@ int SkyStreamConsole::createService() {
 	// Create service
 	char serviceUUID[37];
 	snprintf(serviceUUID, sizeof(serviceUUID), "4fafc201-1fb5-459e-%04x-c5c9c3319%03x", serviceCount, serviceCount);
-	pService = pServer->createService(BLEUUID(serviceUUID), 15, 0);
+	NimBLEService* pService = pServer->createService(serviceUUID);
 
 	// TX
 	char txCharUUID[37];
 	snprintf(txCharUUID, sizeof(txCharUUID), "4fafc201-1fb5-459e-%04x-c5c9c3319a%02x", serviceCount, serviceCount);
-	BLECharacteristic* txCharacteristic = pService->createCharacteristic(txCharUUID, BLECharacteristic::PROPERTY_NOTIFY);
-	txCharacteristic->addDescriptor(new BLE2902());
+	NimBLECharacteristic* txCharacteristic = pService->createCharacteristic(txCharUUID, NIMBLE_PROPERTY::NOTIFY);
+	NimBLEDescriptor* pTxDescriptor;
+	txCharacteristic->addDescriptor(pTxDescriptor);
 
 	// TX (single)
 	char txsCharUUID[37];
 	snprintf(txsCharUUID, sizeof(txsCharUUID), "4fafc201-1fb5-459e-%04x-c5c9c3319b%02x", serviceCount, serviceCount);
-	BLECharacteristic* txsCharacteristic = pService->createCharacteristic(txsCharUUID, BLECharacteristic::PROPERTY_NOTIFY);
-	txsCharacteristic->addDescriptor(new BLE2902());
+	NimBLECharacteristic* txsCharacteristic = pService->createCharacteristic(txsCharUUID, NIMBLE_PROPERTY::NOTIFY);
+	NimBLEDescriptor* pTxsDescriptor;
+	txsCharacteristic->addDescriptor(pTxsDescriptor);
 
 	// RX
 	char rxCharUUID[37];
 	snprintf(rxCharUUID, sizeof(rxCharUUID), "4fafc201-1fb5-459e-%04x-c5c9c3319c%02x", serviceCount, serviceCount);
-	BLECharacteristic* rxCharacteristic = pService->createCharacteristic(rxCharUUID, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
+	NimBLECharacteristic* rxCharacteristic = pService->createCharacteristic(rxCharUUID, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
 	rxCharacteristic->setCallbacks(new RxCharacteristicCallbacks(this));
 
 	// Name
 	char nameCharUUID[37];
 	snprintf(nameCharUUID, sizeof(nameCharUUID), "4fafc201-1fb5-459e-%04x-c5c9c3319d%02x", serviceCount, serviceCount);
-	BLECharacteristic* monitorNameCharacteristic = pService->createCharacteristic(nameCharUUID, BLECharacteristic::PROPERTY_READ);
+	NimBLECharacteristic* monitorNameCharacteristic = pService->createCharacteristic(nameCharUUID, NIMBLE_PROPERTY::READ);
 	monitorNameCharacteristic->setValue(monitorName);
 
-	// Start service
+	// Start the service
 	pService->start();
-	pServer->getAdvertising()->addServiceUUID(serviceUUID);
 
 	// Add service to map
 	services[serviceCount] = ServiceCharacteristics{txCharacteristic, txsCharacteristic, rxCharacteristic};
@@ -145,7 +148,7 @@ void SkyStreamConsole::printf(const char* format, ...) {
 
 	auto servicePair = services.find(serviceID);
 	if (servicePair != services.end()) {
-		BLECharacteristic* txCharacteristic = servicePair->second.txCharacteristic;
+		NimBLECharacteristic* txCharacteristic = servicePair->second.txCharacteristic;
 		if (txCharacteristic) {
 			txCharacteristic->setValue((uint8_t*)buffer, strlen(buffer));
 			txCharacteristic->notify();
@@ -166,7 +169,7 @@ void SkyStreamConsole::singlef(const char* format, ...) {
 
 	auto servicePair = services.find(serviceID);
 	if (servicePair != services.end()) {
-		BLECharacteristic* txsCharacteristic = servicePair->second.txsCharacteristic;
+		NimBLECharacteristic* txsCharacteristic = servicePair->second.txsCharacteristic;
 		if (txsCharacteristic) {
 			txsCharacteristic->setValue((uint8_t*)buffer, strlen(buffer));
 			txsCharacteristic->notify();
@@ -198,7 +201,7 @@ bool SkyStreamConsole::available() {
 std::string SkyStreamConsole::read(char delimiter) {
 	auto servicePair = services.find(serviceID);
 	if (servicePair != services.end()) {
-		BLECharacteristic* rxCharacteristic = servicePair->second.rxCharacteristic;
+		NimBLECharacteristic* rxCharacteristic = servicePair->second.rxCharacteristic;
 		if (rxCharacteristic) {
 			std::string value = rxCharacteristic->getValue();
 			std::stringstream valueStream(value);
@@ -214,7 +217,7 @@ std::string SkyStreamConsole::read(char delimiter) {
 std::vector<uint8_t> SkyStreamConsole::raw() {
 	auto servicePair = services.find(serviceID);
 	if (servicePair != services.end()) {
-		BLECharacteristic* rxCharacteristic = servicePair->second.rxCharacteristic;
+		NimBLECharacteristic* rxCharacteristic = servicePair->second.rxCharacteristic;
 		if (rxCharacteristic) {
 			std::string value = rxCharacteristic->getValue();
 			std::vector<uint8_t> bytes(value.begin(), value.end());
@@ -224,8 +227,8 @@ std::vector<uint8_t> SkyStreamConsole::raw() {
 	return std::vector<uint8_t>();
 }
 
-// Perform OTA update
-bool SkyStreamConsole::update() {
+// Download OTA file
+bool SkyStreamConsole::download() {
 	if (!_ota_console) return false;
 
 	if (!_ota_started) {
@@ -254,6 +257,49 @@ bool SkyStreamConsole::update() {
 	return false;
 }
 
+// Perform OTA update
+bool SkyStreamConsole::update() {
+	if (!SPIFFS.begin(true)) {
+		Serial.println("An Error has occurred while mounting SPIFFS");
+		return false;
+	}
+
+	File updateFile = SPIFFS.open("/update.bin");
+	if (!updateFile) {
+		Serial.println("Failed to open update file");
+		return false;
+	}
+
+	size_t fileSize = updateFile.size();
+	if (!Update.begin(fileSize)) {
+		Serial.println("Not enough space for the update");
+		updateFile.close();
+		return false;
+	}
+
+	size_t written = Update.writeStream(updateFile);
+	updateFile.close();
+
+	if (written != fileSize) {
+		Serial.println("Error occurred during update");
+		return false;
+	}
+
+	if (!Update.end(true)) {
+		Serial.println("Error occurred after update");
+		return false;
+	}
+
+	if (Update.isFinished()) {
+		Serial.println("Update successfully completed. Rebooting...");
+		ESP.restart();
+	} else {
+		Serial.println("Update not finished. Something went wrong!");
+		return false;
+	}
+	return true;
+}
+
 // Check if OTA update is done
 void SkyStreamConsole::ota_check_done() {
 	if (Update.isFinished()) {
@@ -274,16 +320,13 @@ void SkyStreamConsole::ota_check_done() {
 // Digest OTA chunk
 void SkyStreamConsole::ota_digest_chunk() {
 	std::vector<uint8_t> ota_bytes = raw();
-	_ota_timeout = millis(); // Reset timeout
-	if (!_md5_started) {
-		_ota_md5.begin();
-		_md5_started = true;
+	File updateFile = SPIFFS.open("/update.bin", FILE_APPEND);
+	if (!updateFile) {
+		Serial.println("Failed to open file for appending");
+		return;
 	}
-	_ota_md5.add(ota_bytes.data(), ota_bytes.size());
-	size_t written = Update.write(ota_bytes.data(), ota_bytes.size());
-	if (written != ota_bytes.size()) {
-		Serial.printf("Only %d/%d bytes written!\n", written, ota_bytes.size());
-	}
+	updateFile.write(ota_bytes.data(), ota_bytes.size());
+	updateFile.close();
 	ota_send_ack("ACK");
 }
 
