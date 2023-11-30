@@ -20,8 +20,9 @@
 #define ___SKY_STREAM_CONSOLE_H___
 
 #include <Arduino.h>
-
 #include <NimBLEDevice.h>
+#include <MD5Builder.h>
+#include <Update.h>
 
 #include <cstdarg>
 #include <sstream>
@@ -29,9 +30,6 @@
 #include <string>
 #include <vector>
 #include <map>
-
-#include <Update.h>
-#include <MD5Builder.h>
 
 class SkyStreamConsole;
 

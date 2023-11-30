@@ -25,16 +25,19 @@ class SSCCallbacks : public NimBLEServerCallbacks {
 	void onConnect(NimBLEServer* pServer) {
 		Serial.println("Client connected");
 	};
+	
 	void onConnect(NimBLEServer* pServer, ble_gap_conn_desc* desc) {
 		Serial.print("Client address: ");
 		Serial.println(NimBLEAddress(desc->peer_ota_addr).toString().c_str());
 		pServer->updateConnParams(desc->conn_handle, 24, 48, 0, 60);
-		pServer->setDataLen(desc->conn_handle, 517);
+		NimBLEDevice::setMTU(BLE_ATT_MTU_MAX);
 	};
+
 	void onDisconnect(NimBLEServer* pServer) {
 		Serial.println("Client disconnected - start advertising");
 		NimBLEDevice::startAdvertising();
 	};
+
 	void onMTUChange(uint16_t MTU, ble_gap_conn_desc* desc) {
 		Serial.printf("MTU updated: %u for connection ID: %u\n", MTU, desc->conn_handle);
 	};
