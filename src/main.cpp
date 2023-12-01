@@ -1,22 +1,24 @@
-// simple_stream: this example show how to send and receive data from multiple consoles
-
 #include <Arduino.h>
 #include <SmartSyncEvent.h>
-#include <SkyStreamConsole.h>
+#include <ArcticTerminal.h>
 
-// Initialize consoles and handler
-SkyStreamConsole console_core("Core Console");
-SkyStreamConsole console_wifi("WiFi Console");
-SkyStreamConsole console_hello("Hello Console");
-SSCHandler ssc_handler;
+// Initialize consoles
+ArcticTerminalHandler console_handler;
+ArcticTerminal console_ota("OTA");
+ArcticTerminal console_core("Core Console");
+ArcticTerminal console_wifi("WiFi Console");
+ArcticTerminal console_hello("Hello Console");
 
 void setup() {
+	Serial.begin(115200);
+
 	// Generate consoles
-	ssc_handler.begin();
-	ssc_handler.add(console_core);
-	ssc_handler.add(console_wifi);
-	ssc_handler.add(console_hello);
-	ssc_handler.start();
+	console_handler.begin();
+	console_handler.ota(console_ota);
+	console_handler.add(console_core);
+	console_handler.add(console_wifi);
+	console_handler.add(console_hello);
+	console_handler.start();
 }
 
 void loop() {
@@ -43,6 +45,8 @@ void loop() {
 		}
 		if (com == "reset") {
 			console_core.printf("%lu > Restarting MCU\n", millis());
+			delay(500);
+			ESP.restart();
 		}
 
 		// Simple progress bar
@@ -67,6 +71,13 @@ void loop() {
 		}
 		if (com == "disconnect") {
 			console_wifi.printf("%lu > Disconnected\n", millis());
+		}
+	}
+
+	// Check for OTA update
+	if (console_ota.available()) {
+		if (console_ota.download()) {
+			ESP.restart();
 		}
 	}
 }
