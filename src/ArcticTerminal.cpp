@@ -1,54 +1,49 @@
 /*
- * This file is part of SkyStreamConsole Library.
+ * This file is part of ArcticTerminal Library.
  * Copyright (C) 2023 Alejandro Nicolini
  *
- * SkyStreamConsole is free software: you can redistribute it and/or modify
+ * ArcticTerminal is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
- * SkyStreamConsole is distributed in the hope that it will be useful,
+ * ArcticTerminal is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with SkyStreamConsole. If not, see <https://www.gnu.org/licenses/>.
+ * along with ArcticTerminal. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <SkyStreamConsole.h>
+#include <ArcticTerminal.h>
 #include "FS.h"
 #include "SPIFFS.h"
 
 // Callback Connection per server
-class SSCCallbacks : public NimBLEServerCallbacks {
+class ATCallbacks : public NimBLEServerCallbacks {
 	void onConnect(NimBLEServer* pServer) {
-		Serial.println("Client connected");
 	};
 	
 	void onConnect(NimBLEServer* pServer, ble_gap_conn_desc* desc) {
-		Serial.print("Client address: ");
-		Serial.println(NimBLEAddress(desc->peer_ota_addr).toString().c_str());
-		pServer->updateConnParams(desc->conn_handle, 24, 48, 0, 60);
+		pServer->updateConnParams(desc->conn_handle, 6, 8, 0, 60); // 7.5ms interval, 10ms window
 		NimBLEDevice::setMTU(BLE_ATT_MTU_MAX);
 	};
 
 	void onDisconnect(NimBLEServer* pServer) {
-		Serial.println("Client disconnected - start advertising");
 		NimBLEDevice::startAdvertising();
 	};
 
 	void onMTUChange(uint16_t MTU, ble_gap_conn_desc* desc) {
-		Serial.printf("MTU updated: %u for connection ID: %u\n", MTU, desc->conn_handle);
 	};
 };
 
 // Callback RX per console
 class RxCharacteristicCallbacks : public NimBLECharacteristicCallbacks {
-	SkyStreamConsole* console;
+	ArcticTerminal* console;
 
 public:
-	RxCharacteristicCallbacks(SkyStreamConsole* console) : console(console) {
+	RxCharacteristicCallbacks(ArcticTerminal* console) : console(console) {
 	}
 	void onWrite(NimBLECharacteristic* pCharacteristic) {
 		if (console) {
@@ -58,28 +53,28 @@ public:
 };
 
 // Constructor for handler
-SkyStreamHandler::SkyStreamHandler() {
+ArcticTerminalHandler::ArcticTerminalHandler() {
 }
 
 // Begin: Initialize BLE
-void SkyStreamHandler::begin() {
-	NimBLEDevice::init("SkyStreamConsole");
+void ArcticTerminalHandler::begin() {
+	NimBLEDevice::init("ArcticTerminal");
 	pServer = NimBLEDevice::createServer();
-	pServer->setCallbacks(new SSCCallbacks());
+	pServer->setCallbacks(new ATCallbacks());
 }
 
 // Add OTA console to global map
-void SkyStreamHandler::ota(SkyStreamConsole& console) {
+void ArcticTerminalHandler::ota(ArcticTerminal& console) {
 	consoles.push_back(console);
 }
 
 // Add console to global map
-void SkyStreamHandler::add(SkyStreamConsole& console) {
+void ArcticTerminalHandler::add(ArcticTerminal& console) {
 	consoles.push_back(console);
 }
 
 // Start: Start BLE server and advertising
-void SkyStreamHandler::start() {
+void ArcticTerminalHandler::start() {
 	// Initialize services and characteristics
 	for (auto& console : consoles) {
 		console.get().start(pServer);
@@ -90,12 +85,12 @@ void SkyStreamHandler::start() {
 }
 
 // Constructor for consoles
-SkyStreamConsole::SkyStreamConsole(const std::string& monitorName) : pServer(nullptr), serviceID(-1), monitorName(monitorName) {
+ArcticTerminal::ArcticTerminal(const std::string& monitorName) : pServer(nullptr), serviceID(-1), monitorName(monitorName) {
 }
-int SkyStreamConsole::serviceCount = 0;
+int ArcticTerminal::serviceCount = 0;
 
 // Start: Create server and service
-void SkyStreamConsole::start(NimBLEServer* existingServer) {
+void ArcticTerminal::start(NimBLEServer* existingServer) {
 	if (existingServer != nullptr) {
 		pServer = existingServer;
 	}
@@ -103,7 +98,7 @@ void SkyStreamConsole::start(NimBLEServer* existingServer) {
 }
 
 // Create service: Create console with TX, TXS, RX and Name Characteristics
-int SkyStreamConsole::createService() {
+int ArcticTerminal::createService() {
 
 	// Service 0 is reserved for OTA
 	if (serviceCount == 0)
@@ -149,7 +144,7 @@ int SkyStreamConsole::createService() {
 }
 
 // Printf TX: Multiline TX with format
-void SkyStreamConsole::printf(const char* format, ...) {
+void ArcticTerminal::printf(const char* format, ...) {
 	if (serviceID == -1) {
 		return;
 	}
@@ -172,7 +167,7 @@ void SkyStreamConsole::printf(const char* format, ...) {
 }
 
 // Singlef TX: Singleline TX with format
-void SkyStreamConsole::singlef(const char* format, ...) {
+void ArcticTerminal::singlef(const char* format, ...) {
 	if (serviceID == -1) {
 		return;
 	}
@@ -194,12 +189,12 @@ void SkyStreamConsole::singlef(const char* format, ...) {
 }
 
 // Updates new data flag
-void SkyStreamConsole::setNewDataAvailable(bool available) {
+void ArcticTerminal::setNewDataAvailable(bool available) {
 	newDataAvailable = available;
 }
 
 // Available RX: Check if new data is available
-bool SkyStreamConsole::available() {
+bool ArcticTerminal::available() {
 	bool available = newDataAvailable.load();
 	newDataAvailable = false;
 
@@ -212,7 +207,7 @@ bool SkyStreamConsole::available() {
 }
 
 // Read RX: Read RX data until delimiter
-std::string SkyStreamConsole::read(char delimiter) {
+std::string ArcticTerminal::read(char delimiter) {
 	auto servicePair = services.find(serviceID);
 	if (servicePair != services.end()) {
 		NimBLECharacteristic* rxCharacteristic = servicePair->second.rxCharacteristic;
@@ -228,7 +223,7 @@ std::string SkyStreamConsole::read(char delimiter) {
 }
 
 // Read RX: Read raw RX data as vector
-std::vector<uint8_t> SkyStreamConsole::raw() {
+std::vector<uint8_t> ArcticTerminal::raw() {
 	auto servicePair = services.find(serviceID);
 	if (servicePair != services.end()) {
 		NimBLECharacteristic* rxCharacteristic = servicePair->second.rxCharacteristic;
@@ -242,7 +237,7 @@ std::vector<uint8_t> SkyStreamConsole::raw() {
 }
 
 // Download OTA file
-bool SkyStreamConsole::download() {
+bool ArcticTerminal::download() {
 	if (!_ota_console) return false;
 
 	if (!_ota_started) {
@@ -272,18 +267,17 @@ bool SkyStreamConsole::download() {
 }
 
 // Perform OTA update
-bool SkyStreamConsole::update() {
+bool ArcticTerminal::update() {
 	return true;
 }
 
 // Check if OTA update is done
-void SkyStreamConsole::ota_check_done() {
+void ArcticTerminal::ota_check_done() {
 	if (Update.isFinished()) {
 		if (Update.end()) {
 			ota_send_ack("DONE");
 			if (_md5_started) {
 				_ota_md5.calculate();
-				Serial.println(_ota_md5.toString());
 			}
 		}
 		else {
@@ -294,7 +288,7 @@ void SkyStreamConsole::ota_check_done() {
 }
 
 // Digest OTA chunk
-void SkyStreamConsole::ota_digest_chunk() {
+void ArcticTerminal::ota_digest_chunk() {
 	std::vector<uint8_t> ota_bytes = raw();
 	_ota_timeout = millis(); // Reset timeout
 	if (!_md5_started) {
@@ -304,42 +298,41 @@ void SkyStreamConsole::ota_digest_chunk() {
 	_ota_md5.add(ota_bytes.data(), ota_bytes.size());
 	size_t written = Update.write(ota_bytes.data(), ota_bytes.size());
 	if (written != ota_bytes.size()) {
-		Serial.printf("Only %d/%d bytes written!\n", written, ota_bytes.size());
+		// Error writing OTA chunk
 	}
 	ota_send_ack("ACK");
 }
 
 // Handle OTA errors
-void SkyStreamConsole::ota_handle_error() {
+void ArcticTerminal::ota_handle_error() {
 	int err = Update.getError();
 	switch (err) {
 		case UPDATE_ERROR_SPACE:
-			Serial.println("Not enough space for update");
+			// Not enough space
 			break;
 		case UPDATE_ERROR_SIZE:
-			Serial.println("Bad size given");
+			// Bad size given
 			break;
 		case UPDATE_ERROR_MD5:
-			Serial.println("Update file is corrupted");
+			// MD5 check failed
 			break;
 		case UPDATE_ERROR_MAGIC_BYTE:
-			Serial.println("Magic byte is wrong, not 0xE9");
+			// Magic byte is wrong, not 0xE9
 			break;
 		default:
-			Serial.printf("Unknown error code: %d\n", err);
+			// Other error
 			break;
 	}
 }
 
 // Send ACK response, can be READY, ACK, ERROR or DONE
-void SkyStreamConsole::ota_send_ack(const char* ack) {
-	Serial.printf("ACK: %s[%d]\n", ack, _ack_counter);
+void ArcticTerminal::ota_send_ack(const char* ack) {
 	singlef("%s[%d]", ack, _ack_counter);
 	_ack_counter++;
 }
 
 // Clear OTA variables
-void SkyStreamConsole::ota_clear() {
+void ArcticTerminal::ota_clear() {
 	_ota_started = false;
 	_md5_started = false;
 	_ota_timeout = 0;

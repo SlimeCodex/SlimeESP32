@@ -1,25 +1,24 @@
 /*
- * This file is part of SkyStreamConsole Library.
+ * This file is part of ArcticTerminal Library.
  * Copyright (C) 2023 Alejandro Nicolini
  *
- * SkyStreamConsole is free software: you can redistribute it and/or modify
+ * ArcticTerminal is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
- * SkyStreamConsole is distributed in the hope that it will be useful,
+ * ArcticTerminal is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with SkyStreamConsole. If not, see <https://www.gnu.org/licenses/>.
+ * along with ArcticTerminal. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef ___SKY_STREAM_CONSOLE_H___
-#define ___SKY_STREAM_CONSOLE_H___
+#ifndef ___ARCTIC_TERMINAL_H___
+#define ___ARCTIC_TERMINAL_H___
 
-#include <Arduino.h>
 #include <NimBLEDevice.h>
 #include <MD5Builder.h>
 #include <Update.h>
@@ -31,24 +30,24 @@
 #include <vector>
 #include <map>
 
-class SkyStreamConsole;
+class ArcticTerminal;
 
-class SkyStreamHandler {
+class ArcticTerminalHandler {
 public:
-	SkyStreamHandler();
+	ArcticTerminalHandler();
 	void begin();
-	void ota(SkyStreamConsole& console); // Register OTA console
-	void add(SkyStreamConsole& console); // Register data console
+	void ota(ArcticTerminal& console); // Register OTA console
+	void add(ArcticTerminal& console); // Register data console
 	void start();
 
 private:
 	NimBLEServer* pServer;
-	std::vector<std::reference_wrapper<SkyStreamConsole>> consoles;
+	std::vector<std::reference_wrapper<ArcticTerminal>> consoles;
 };
 
-class SkyStreamConsole {
+class ArcticTerminal {
 public:
-	SkyStreamConsole(const std::string& monitorName);
+	ArcticTerminal(const std::string& monitorName);
 	void start(NimBLEServer* existingServer);
 	int createService();
 	void printf(const char* format, ...);
@@ -61,7 +60,7 @@ public:
 	std::vector<uint8_t> raw();
 
 private:
-	friend class SkyStreamHandler;
+	friend class ArcticTerminalHandler;
 	
 	struct ServiceCharacteristics {
 		NimBLECharacteristic* txCharacteristic;

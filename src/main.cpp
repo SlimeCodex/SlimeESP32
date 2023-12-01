@@ -1,24 +1,24 @@
 #include <Arduino.h>
 #include <SmartSyncEvent.h>
-#include <SkyStreamConsole.h>
+#include <ArcticTerminal.h>
 
 // Initialize consoles
-SkyStreamHandler ssc_handler;
-SkyStreamConsole console_ota("OTA");
-SkyStreamConsole console_core("Core Console");
-SkyStreamConsole console_wifi("WiFi Console");
-SkyStreamConsole console_hello("Hello Console");
+ArcticTerminalHandler console_handler;
+ArcticTerminal console_ota("OTA");
+ArcticTerminal console_core("Core Console");
+ArcticTerminal console_wifi("WiFi Console");
+ArcticTerminal console_hello("Hello Console");
 
 void setup() {
 	Serial.begin(115200);
 
 	// Generate consoles
-	ssc_handler.begin();
-	ssc_handler.ota(console_ota);
-	ssc_handler.add(console_core);
-	ssc_handler.add(console_wifi);
-	ssc_handler.add(console_hello);
-	ssc_handler.start();
+	console_handler.begin();
+	console_handler.ota(console_ota);
+	console_handler.add(console_core);
+	console_handler.add(console_wifi);
+	console_handler.add(console_hello);
+	console_handler.start();
 }
 
 void loop() {
@@ -77,6 +77,7 @@ void loop() {
 	// Check for OTA update
 	if (console_ota.available()) {
 		if (console_ota.download()) {
+			ESP.restart();
 		}
 	}
 }
