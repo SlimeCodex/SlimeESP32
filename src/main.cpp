@@ -1,83 +1,63 @@
 #include <Arduino.h>
 #include <SmartSyncEvent.h>
 #include <ArcticTerminal.h>
+#include <vector>
+#include <map>
+#include <string>
 
-// Initialize consoles
-ArcticTerminalHandler console_handler;
+#define MAX_CONSOLES 20
+
 ArcticTerminal console_ota("OTA");
-ArcticTerminal console_core("Core Console");
-ArcticTerminal console_wifi("WiFi Console");
-ArcticTerminal console_hello("Hello Console");
+ArcticTerminalHandler console_handler;
+
+std::vector<ArcticTerminal*> consoles;
+std::map<ArcticTerminal*, std::string> consoleNames;
+
+void addConsoles(int count) {
+	count = (count > MAX_CONSOLES) ? MAX_CONSOLES : count;
+	for (int i = 0; i < count; i++) {
+		char consoleName[21];
+		sprintf(consoleName, "Dynamic Console %d", i + 1);
+		ArcticTerminal* newConsole = new ArcticTerminal(consoleName);
+		consoles.push_back(newConsole);
+		consoleNames[newConsole] = consoleName;
+	}
+}
 
 void setup() {
 	Serial.begin(115200);
-
-	// Generate consoles
 	console_handler.begin();
 	console_handler.ota(console_ota);
-	console_handler.add(console_core);
-	console_handler.add(console_wifi);
-	console_handler.add(console_hello);
+
+	addConsoles(20);
+
+	for (auto& console : consoles) {
+		console_handler.add(*console);
+	}
 	console_handler.start();
 }
 
 void loop() {
-
-	// Simple hello world every 500ms
-	if (SYNC_EVENT(500)) {
-		console_hello.printf("%lu > Hello World !!\n", millis());
-	}
-
-	if (console_hello.available()) {
-		std::string com = console_hello.read();
-		
-		if (com == "hello") {
-			console_hello.singlef("%lu > hello !!\n", millis());
-		}
-	}
-
-	// Check for incoming commands
-	if (console_core.available()) {
-		std::string com = console_core.read();
-
-		if (com == "get_mac") {
-			console_core.printf("%lu > AA:BB:CC:DD:EE:FF\n", millis());
-		}
-		if (com == "reset") {
-			console_core.printf("%lu > Restarting MCU\n", millis());
-			delay(500);
-			ESP.restart();
-		}
-
-		// Simple progress bar
-		if (com == "load") {
-			std::string progress_bar;
-			for (int i = 0; i <= 100; i++) {
-				progress_bar.clear();
-				progress_bar.append(i/2, '|');
-				progress_bar.append(50 - i/2, ' ');
-				console_core.singlef("%lu > Loading data |%s| %d%%\n", millis(), progress_bar.c_str(), i);
-				delay(20);
+	for (auto& console : consoles) {
+		if (console->available()) {
+			std::string com = console->read();
+			std::string consoleName = consoleNames[console];
+			if (com == "info") {
+				console->singlef("%lu > This is %s\n", millis(), consoleName.c_str());
 			}
 		}
 	}
-
-	// Check for incoming commands
-	if (console_wifi.available()) {
-		std::string com = console_wifi.read();
-		
-		if (com == "connect") {
-			console_wifi.printf("%lu > Connecting to WiFi...\n", millis());
-		}
-		if (com == "disconnect") {
-			console_wifi.printf("%lu > Disconnected\n", millis());
+	if (SYNC_EVENT(1000)) {
+		for (auto& console : consoles) {
+			std::string consoleName = consoleNames[console];
+			console->printf("%lu > This is %s\n", millis(), consoleName.c_str());
 		}
 	}
+}
 
-	// Check for OTA update
-	if (console_ota.available()) {
-		if (console_ota.download()) {
-			ESP.restart();
-		}
+void cleanup() {
+	for (auto& console : consoles) {
+		delete console;
 	}
+	consoles.clear();
 }
