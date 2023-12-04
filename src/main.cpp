@@ -28,7 +28,10 @@ void setup() {
 	Serial.begin(115200);
 
 	// Generate consoles
+	console_handler.debug(true);
+	
 	console_handler.begin();
+	console_handler.profile(ARCTIC_PROFILE_MAX_SPEED);
 	console_handler.ota(console_ota);
 	console_handler.add(console_core);
 	console_handler.add(console_wifi);
@@ -76,6 +79,7 @@ void task_ota(void* pvParameter) {
 		// Check for OTA update, should this block the loop?
 		if (console_ota.available()) {
 			if (console_ota.download()) {
+				delay(500);
 				ESP.restart();
 			}
 		}
