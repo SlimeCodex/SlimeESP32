@@ -56,6 +56,7 @@ void task_core(void* pvParameter) {
 			}
 			if (com == "reset") {
 				console_core.printf("%lu > Restarting MCU\n", millis());
+				delay(500);
 				ESP.restart();
 			}
 
