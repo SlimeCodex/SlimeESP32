@@ -1,9 +1,11 @@
 // simple_stream: this example shows how to use the ArcticTerminal class to create multiple consoles and OTA update
 
+#include <ArcticTerminal.h>
 #include <Arduino.h>
 #include <SlimyTask.h>
 #include <SmartSyncEvent.h>
-#include <ArcticTerminal.h>
+#include <WiFi.h>
+
 
 // Initialize consoles
 ArcticTerminalHandler console_handler;
@@ -19,17 +21,17 @@ void task_wifi(void* pvParameter);
 void task_hello(void* pvParameter);
 
 // Task handlers
-SlimyTask esp_task_core(5*1024, task_core, "core", 1, 1);
-SlimyTask esp_task_ota(5*1024, task_ota, "ota", 1, 1);
-SlimyTask esp_task_wifi(5*1024, task_wifi, "wifi", 1, 1);
-SlimyTask esp_task_hello(5*1024, task_hello, "hello", 1, 1);
+SlimyTask esp_task_core(5 * 1024, task_core, "core", 1, 1);
+SlimyTask esp_task_ota(5 * 1024, task_ota, "ota", 1, 1);
+SlimyTask esp_task_wifi(5 * 1024, task_wifi, "wifi", 1, 1);
+SlimyTask esp_task_hello(5 * 1024, task_hello, "hello", 1, 1);
 
 void setup() {
 	Serial.begin(115200);
 
 	// Generate consoles
 	console_handler.debug(true);
-	
+
 	console_handler.begin();
 	console_handler.profile(ARCTIC_PROFILE_MAX_SPEED);
 	console_handler.ota(console_ota);
@@ -46,27 +48,30 @@ void setup() {
 }
 
 void task_core(void* pvParameter) {
-	while(1) {
+	while (1) {
 		// Check for incoming commands
 		if (console_core.available()) {
-			std::string com = console_core.read();
+			ArcticCommand com(console_core.read());
 
-			if (com == "get_mac") {
+			if (com.base() == "get_mac") {
 				console_core.printf("%lu > AA:BB:CC:DD:EE:FF\n", millis());
 			}
-			if (com == "reset") {
+			if (com.base() == "reset") {
 				console_core.printf("%lu > Restarting MCU\n", millis());
 				delay(500);
 				ESP.restart();
 			}
+			if (com.base() == "version") {
+				console_core.printf("%lu > Version 1.0.0\n", millis());
+			}
 
 			// Simple progress bar
-			if (com == "load") {
+			if (com.base() == "load") {
 				std::string progress_bar;
 				for (int i = 0; i <= 100; i++) {
 					progress_bar.clear();
-					progress_bar.append(i/2, '|');
-					progress_bar.append(50 - i/2, ' ');
+					progress_bar.append(i / 2, '|');
+					progress_bar.append(50 - i / 2, ' ');
 					console_core.singlef("%lu > Loading data |%s| %d%%\n", millis(), progress_bar.c_str(), i);
 					delay(20);
 				}
@@ -76,7 +81,7 @@ void task_core(void* pvParameter) {
 }
 
 void task_ota(void* pvParameter) {
-	while(1) {
+	while (1) {
 		// Check for OTA update, should this block the loop?
 		if (console_ota.available()) {
 			if (console_ota.download()) {
@@ -88,36 +93,53 @@ void task_ota(void* pvParameter) {
 }
 
 void task_wifi(void* pvParameter) {
-	while(1) {
+	while (1) {
 		// Check for incoming commands
 		if (console_wifi.available()) {
-			std::string com = console_wifi.read();
-			
-			if (com == "connect") {
-				console_wifi.printf("%lu > Connecting to WiFi...\n", millis());
+			ArcticCommand com = console_wifi.read();
+
+			if (com.base() == "connect") {
+				if (com.check("-u") && com.check("-p")) {
+					std::string user = com.arg("-u");
+					std::string pass = com.arg("-p");
+
+					console_wifi.printf("%lu > Connecting to [%s] with password [%s] ", millis(), user.c_str(), pass.c_str());
+					WiFi.begin(user.c_str(), pass.c_str());
+
+					while (WiFi.status() != WL_CONNECTED) {
+						console_wifi.printf(".");
+						delay(500);
+					}
+					console_wifi.printf("\n");
+
+					console_wifi.printf("%lu > Connected with IP %s\n", millis(), WiFi.localIP().toString().c_str());
+				}
 			}
-			if (com == "disconnect") {
+			if (com.base() == "disconnect") {
 				console_wifi.printf("%lu > Disconnected\n", millis());
+				WiFi.disconnect();
 			}
 		}
 	}
 }
 
 void task_hello(void* pvParameter) {
-	while(1) {
+	while (1) {
 		// Simple hello world every 500ms
 		if (SYNC_EVENT(500)) {
 			console_hello.printf("%lu > Hello World !!\n", millis());
 		}
 
 		if (console_hello.available()) {
-			std::string com = console_hello.read();
-			
-			if (com == "hello") {
+			ArcticCommand com = console_hello.read();
+
+			if (com.base() == "hello") {
 				console_hello.singlef("%lu > hello !!\n", millis());
 			}
 		}
 	}
 }
 
-void loop() {vTaskDelete(NULL);}
+void loop() {
+	vTaskDelete(NULL);
+}

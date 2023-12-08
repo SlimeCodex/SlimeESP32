@@ -1,0 +1,13 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "PlatformIO",
+			"task": "Upload (dfrobot_firebeetle2_esp32e)",
+			"problemMatcher": [
+				"$platformio"
+			],
+			"label": "PlatformIO: Upload (dfrobot_firebeetle2_esp32e)"
+		}
+	]
+}
