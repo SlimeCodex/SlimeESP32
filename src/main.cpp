@@ -1,50 +1,39 @@
 // simple_stream: this example shows how to use the ArcticTerminal class to create multiple consoles and OTA update
 
-#include <ArcticTerminal.h>
 #include <Arduino.h>
-#include <SlimyTask.h>
+#include <ArcticClient.h>
 #include <SmartSyncEvent.h>
+#include <SlimyTask.h>
 #include <WiFi.h>
 
-
 // Initialize consoles
-ArcticTerminalHandler console_handler;
-ArcticTerminal console_ota("OTA");
+ArcticClient arctic_client;
 ArcticTerminal console_core("Core Console");
 ArcticTerminal console_wifi("WiFi Console");
-ArcticTerminal console_hello("Hello Console");
 
 // Task functions
 void task_core(void* pvParameter);
 void task_ota(void* pvParameter);
 void task_wifi(void* pvParameter);
-void task_hello(void* pvParameter);
 
 // Task handlers
-SlimyTask esp_task_core(5 * 1024, task_core, "core", 1, 1);
-SlimyTask esp_task_ota(5 * 1024, task_ota, "ota", 1, 1);
-SlimyTask esp_task_wifi(5 * 1024, task_wifi, "wifi", 1, 1);
-SlimyTask esp_task_hello(5 * 1024, task_hello, "hello", 1, 1);
+SlimyTask esp_task_core(8 * 1024, task_core, "core", 1, 1);
+SlimyTask esp_task_ota(8 * 1024, task_ota, "ota", 1, 1);
+SlimyTask esp_task_wifi(8 * 1024, task_wifi, "wifi", 1, 1);
 
 void setup() {
 	Serial.begin(115200);
 
 	// Generate consoles
-	console_handler.debug(true);
-
-	console_handler.begin();
-	console_handler.profile(ARCTIC_PROFILE_MAX_SPEED);
-	console_handler.ota(console_ota);
-	console_handler.add(console_core);
-	console_handler.add(console_wifi);
-	console_handler.add(console_hello);
-	console_handler.start();
+	arctic_client.begin();
+	arctic_client.add(console_core);
+	arctic_client.add(console_wifi);
+	arctic_client.start();
 
 	// Start tasks
 	esp_task_core.start();
-	esp_task_ota.start();
 	esp_task_wifi.start();
-	esp_task_hello.start();
+	esp_task_ota.start();
 }
 
 void task_core(void* pvParameter) {
@@ -64,7 +53,6 @@ void task_core(void* pvParameter) {
 			if (com.base() == "version") {
 				console_core.printf("%lu > Version 1.0.0\n", millis());
 			}
-
 			// Simple progress bar
 			if (com.base() == "load") {
 				std::string progress_bar;
@@ -75,18 +63,6 @@ void task_core(void* pvParameter) {
 					console_core.singlef("%lu > Loading data |%s| %d%%\n", millis(), progress_bar.c_str(), i);
 					delay(20);
 				}
-			}
-		}
-	}
-}
-
-void task_ota(void* pvParameter) {
-	while (1) {
-		// Check for OTA update, should this block the loop?
-		if (console_ota.available()) {
-			if (console_ota.download()) {
-				delay(500);
-				ESP.restart();
 			}
 		}
 	}
@@ -123,18 +99,13 @@ void task_wifi(void* pvParameter) {
 	}
 }
 
-void task_hello(void* pvParameter) {
+void task_ota(void* pvParameter) {
 	while (1) {
-		// Simple hello world every 500ms
-		if (SYNC_EVENT(500)) {
-			console_hello.printf("%lu > Hello World !!\n", millis());
-		}
-
-		if (console_hello.available()) {
-			ArcticCommand com = console_hello.read();
-
-			if (com.base() == "hello") {
-				console_hello.singlef("%lu > hello !!\n", millis());
+		// Check for OTA update, should this block the loop?
+		if (arctic_client.ota.available()) {
+			if (arctic_client.ota.download()) {
+				delay(500);
+				ESP.restart();
 			}
 		}
 	}
