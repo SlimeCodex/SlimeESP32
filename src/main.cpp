@@ -36,12 +36,36 @@ void setup() {
 	esp_task_ota.start();
 }
 
+uint32_t core_counter = 0;
+bool core_enabled = false;
+
 void task_core(void* pvParameter) {
 	while (1) {
+		if (SYNC_EVENT(10) && core_enabled) {
+			console_core.printf("%lu > Core task is running %d\n", millis(), core_counter);
+			core_counter++;
+		}
+
 		// Check for incoming commands
 		if (console_core.available()) {
 			ArcticCommand com(console_core.read());
 
+			if (com.base() == "hide") {
+				console_core.printf("%lu > Hiding wifi console\n", millis());
+				console_wifi.hide();
+			}
+			if (com.base() == "show") {
+				console_core.printf("%lu > Showing wifi console\n", millis());
+				console_wifi.show();
+			}
+			if (com.base() == "enable") {
+				console_core.printf("%lu > Starting core task\n", millis());
+				core_enabled = true;
+			}
+			if (com.base() == "disable") {
+				console_core.printf("%lu > Stopping core task\n", millis());
+				core_enabled = false;
+			}
 			if (com.base() == "get_mac") {
 				console_core.printf("%lu > AA:BB:CC:DD:EE:FF\n", millis());
 			}
@@ -72,7 +96,7 @@ void task_wifi(void* pvParameter) {
 	while (1) {
 		// Check for incoming commands
 		if (console_wifi.available()) {
-			ArcticCommand com = console_wifi.read();
+			ArcticCommand com(console_wifi.read());
 
 			if (com.base() == "connect") {
 				if (com.check("-u") && com.check("-p")) {
