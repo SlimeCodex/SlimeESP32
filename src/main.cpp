@@ -1,13 +1,13 @@
 // Description: A basic example of how to plot data into the Arctic Graphics module.
 
 #include <Arduino.h>
-#include <ArcticClient.h>
+#include <NeveClient.h>
 #include <SmartSyncEvent.h>
 
-ArcticClient arctic_client;
-ArcticTerminal simple_console("Core");
-ArcticGraphics phase_plotter("Simple Plotter");
-ArcticMap map_plotter("Map Tracer");
+NeveClient neve_client;
+NeveTerminal simple_console("Core");
+NeveGraph phase_plotter("Simple Plotter");
+NeveMap map_plotter("Map Tracer");
 
 int map_index = 0;
 struct MapLocation {
@@ -39,9 +39,11 @@ const MapLocation locations[] = {
 };
 
 void setup() {
-	Serial.begin(115200);
-	arctic_client.interface(Serial);
-	arctic_client.begin(ARCTIC_UART);
+	//neve_client.begin(NEVE_BLUETOOTH);
+	neve_client.interface(Serial);
+	neve_client.begin(NEVE_UART);
+	//neve_client.connect("SlimeNetwork2G", "bpusixPGMVjeP2QKGsLi");
+	//neve_client.begin(NEVE_WIFI);
 
     phase_plotter.setup("Signal 1-Phase", {"Sample", "Amplitude"}, {"Phase R"});
     phase_plotter.setup("Signal 2-Phase", {"Sample", "Amplitude"}, {"Phase R", "Phase S"});
