@@ -1,0 +1,157 @@
+#ifndef NETWORK_MANAGER_H
+#define NETWORK_MANAGER_H
+
+#include <Arduino.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <MQTT.h>
+#include <ArduinoJson.h>
+#include <functional>
+
+// ========================== Configuration Structure ==========================
+struct NetworkConfig {
+    // WiFi Configuration
+    struct {
+        const char* ssid;
+        const char* password;
+        uint32_t connectTimeoutMs = 30000;
+    } wifi;
+    
+    // MQTT Configuration
+    struct {
+        const char* server;
+        uint16_t port = 8883;
+        const char* username;
+        const char* password;
+        const char* clientId = "ESP32Client";
+        uint32_t reconnectDelayMs = 5000;
+        bool useSSL = true;
+    } mqtt;
+};
+
+// ========================== System Metrics ==========================
+struct NetworkMetrics {
+    // Connection status
+    bool wifiConnected = false;
+    bool mqttConnected = false;
+    
+    // WiFi metrics
+    int8_t rssi = 0;
+    IPAddress localIP;
+    
+    // MQTT metrics
+    uint32_t messagesSent = 0;
+    uint32_t messagesReceived = 0;
+    uint32_t lastMessageTime = 0;
+    uint32_t avgResponseTimeMs = 0;
+    
+    // System metrics
+    uint32_t connectAttempts = 0;
+    uint32_t disconnectCount = 0;
+    uint32_t uptime = 0;
+};
+
+// ========================== Callback Types ==========================
+using MessageCallback = std::function<void(const char* topic, StaticJsonDocument<512>& payload, NetworkMetrics& metrics)>;
+using ConnectionCallback = std::function<void(bool connected)>;
+using ErrorCallback = std::function<void(const char* error)>;
+
+// ========================== Network Manager Class ==========================
+class NetworkManager {
+public:
+    NetworkManager(const NetworkConfig& config);
+    ~NetworkManager();
+    
+    // Lifecycle methods
+    bool begin();
+    void loop();
+    void stop();
+    
+    // WiFi methods
+    bool connectWiFi();
+    void disconnectWiFi();
+    bool isWiFiConnected() const;
+    
+    // MQTT methods
+    bool connectMQTT();
+    void disconnectMQTT();
+    bool isMQTTConnected() const;
+    bool subscribe(const char* topic);
+    bool unsubscribe(const char* topic);
+    bool publish(const char* topic, const char* payload);
+    template<size_t N>
+    bool publishJSON(const char* topic, StaticJsonDocument<N>& doc) {
+        char buffer[256];
+        memset(buffer, 0, sizeof(buffer));
+        size_t len = serializeJson(doc, buffer, sizeof(buffer) - 1);
+        
+        if (len >= sizeof(buffer) - 1) {
+            Serial.printf("[MQTT] JSON payload too large: %d bytes (max %d)\n", len, sizeof(buffer) - 1);
+            return false;
+        }
+        
+        buffer[len] = '\0';
+        return publish(topic, buffer);
+    }
+    
+    // Callbacks
+    void onMessage(MessageCallback callback);
+    void onConnection(ConnectionCallback callback);
+    void onError(ErrorCallback callback);
+    
+    // Metrics and status
+    NetworkMetrics getMetrics() const;
+    void printStatus() const;
+    String getStatusJSON() const;
+    
+    // Configuration
+    void updateConfig(const NetworkConfig& config);
+    NetworkConfig getConfig() const;
+    
+private:
+    // Configuration
+    NetworkConfig config;
+    
+    // Network clients
+    WiFiClientSecure* wifiClient;
+    MQTTClient* mqttClient;
+    
+    // Metrics
+    NetworkMetrics metrics;
+    
+    // Callbacks
+    MessageCallback messageCallback;
+    ConnectionCallback connectionCallback;
+    ErrorCallback errorCallback;
+    
+    // Internal state
+    unsigned long lastReconnectAttempt;
+    unsigned long requestStartTime;
+    bool initialized;
+    
+    // Private methods
+    void handleMQTTMessage(const char* topic, const byte* payload, unsigned int length);
+    void updateMetrics();
+    bool reconnectMQTT();
+    void logInfo(const char* format, ...) const;
+    void logError(const char* format, ...) const;
+    bool ensureConnected();
+};
+
+// ========================== Helper Class for Easy Setup ==========================
+class NetworkBuilder {
+public:
+    NetworkBuilder& withWiFi(const char* ssid, const char* password);
+    NetworkBuilder& withMQTT(const char* server, uint16_t port);
+    NetworkBuilder& withMQTTAuth(const char* username, const char* password);
+    NetworkBuilder& withClientId(const char* clientId);
+    NetworkBuilder& withSSL(bool useSSL);
+    NetworkBuilder& withTimeouts(uint32_t wifiTimeout, uint32_t mqttReconnectDelay);
+    
+    NetworkManager* build();
+    
+private:
+    NetworkConfig config;
+};
+
+#endif // NETWORK_MANAGER_H

@@ -1,0 +1,458 @@
+#include "NetworkManager.h"
+#include <stdarg.h>
+
+// ========================== NetworkManager Implementation ==========================
+
+NetworkManager::NetworkManager(const NetworkConfig& cfg) : config(cfg), wifiClient(nullptr), mqttClient(nullptr), lastReconnectAttempt(0), requestStartTime(0), initialized(false) {
+
+	wifiClient = new WiFiClientSecure();
+
+	// Configure SSL client for persistent connection
+	if (!config.mqtt.useSSL) {
+	}
+		wifiClient->setInsecure();
+
+	// Set CA Cert
+	static const char ca_cert[] PROGMEM = R"EOF(
+-----BEGIN CERTIFICATE-----
+MIIDtzCCAp+gAwIBAgIUSUzRboVSO6t1ADt+/v0sWNVbKB0wDQYJKoZIhvcNAQEL
+BQAwazELMAkGA1UEBhMCVVMxDjAMBgNVBAgMBVN0YXRlMQ0wCwYDVQQHDARDaXR5
+MRIwEAYDVQQKDAlTdHJlYXhCb3QxDTALBgNVBAsMBE1RVFQxGjAYBgNVBAMMEVN0
+cmVheEJvdCBNUVRUIENBMB4XDTI1MDkwOTA1MDg1NloXDTM1MDkwNzA1MDg1Nlow
+azELMAkGA1UEBhMCVVMxDjAMBgNVBAgMBVN0YXRlMQ0wCwYDVQQHDARDaXR5MRIw
+EAYDVQQKDAlTdHJlYXhCb3QxDTALBgNVBAsMBE1RVFQxGjAYBgNVBAMMEVN0cmVh
+eEJvdCBNUVRUIENBMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAibFA
+Y+DZBncYxDVqsynPn7gq57AC8LG4x3Y4z4tnRDL9u9jcHtoalhfj3bbvW5eoYeae
+Sze5WJ0rQ09Xdw90p+9nQHRxXyV5Q9Vp7iZ4s9JKK5R/gp7kITR8Eym+xpyu8CrM
+drBql9foob8qEfk5kXsrG11CmpA5/WiC2kN4isfzuAb9i0TIIVrPVpeGUg7ssbms
+gwGzfg6z1feNQACvwiEJdxWCYpgAKYZBPYEOc785mGUFl2r5cvH8eI9qqAzZp9Mv
+sRd25/lI/aPGKzknESDTgiMgZO+I61wUJA5ZEQkOPnqyiAU5KYiNe/Pq11tMvhnD
+9RE6SyGEwgbIz1djXQIDAQABo1MwUTAdBgNVHQ4EFgQU+7czV8NcFPoVDwViejh5
+siZtfa8wHwYDVR0jBBgwFoAU+7czV8NcFPoVDwViejh5siZtfa8wDwYDVR0TAQH/
+BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEATjCfLAk/3uRaiHbfiLQ3Eiv4tvja
+EJMvY8PET3TEeYjCgq8+Xf47ZXeLtxjfyDXRbsa5xq28JxwGgjFMYdQSmUIpViTe
+DMTihLk5h1m5LRUBi3KS05SDcLL14rlqfMMgGxpI6g/oVTE0NBOAWLV8tghaPsgK
+WhEltA8izbpwTiBONv7QygNdABP0hGuGdvWwyqgN4ZsIRSGFKJMBWU8n0vnC+aYR
+0g4Fn79bcpYl8ZcBLkDvBDMrvZYgEcteFwOvfJ040wmfIRXXuLGRNWZySJ0sodQC
+1ywEI51vDoHNfN6ddxQ0UERhC8MvbBf2Wbk64iAnvZcQb4KXe4feGbo4Rw==
+-----END CERTIFICATE-----
+)EOF";
+	//wifiClient->setCACert(ca_cert);
+
+	// Set handshake timeout to prevent disconnections
+	wifiClient->setHandshakeTimeout(30);
+
+	// Create MQTT client with appropriate buffer size
+	mqttClient = new MQTTClient(1024);
+}
+
+NetworkManager::~NetworkManager() {
+	stop();
+	if (mqttClient) delete mqttClient;
+	if (wifiClient) delete wifiClient;
+}
+
+bool NetworkManager::begin() {
+	if (initialized) return true;
+
+	logInfo("[NetworkManager] Initializing...");
+
+	// Setup MQTT
+	mqttClient->begin(config.mqtt.server, config.mqtt.port, *wifiClient);
+
+	// Set callback using lambda
+	mqttClient->onMessage([this](String& topic, String& payload) { this->handleMQTTMessage(topic.c_str(), (const byte*)payload.c_str(), payload.length()); });
+
+	// Set MQTT options
+	mqttClient->setKeepAlive(60); // Standard keep-alive
+	mqttClient->setTimeout(5000);
+	mqttClient->setOptions(0, true, 5000); // keepAlive, cleanSession, timeout
+
+	// Connect WiFi
+	if (!connectWiFi()) {
+		logError("[NetworkManager] WiFi connection failed");
+		return false;
+	}
+
+	// Connect MQTT
+	if (!connectMQTT()) {
+		logError("[NetworkManager] MQTT connection failed");
+	}
+
+	initialized = true;
+	updateMetrics();
+	return true;
+}
+
+void NetworkManager::loop() {
+	if (!initialized) return;
+
+	// Check WiFi connection
+	if (WiFi.status() != WL_CONNECTED) {
+		metrics.wifiConnected = false;
+		if (!connectWiFi()) {
+			delay(5000);
+			return;
+		}
+	}
+
+	// Always call MQTT loop first to process incoming messages and maintain connection
+	mqttClient->loop();
+
+	// Check MQTT connection status after loop() call
+	if (!mqttClient->connected()) {
+		metrics.mqttConnected = false;
+		// Only try to reconnect periodically, not immediately
+		unsigned long now = millis();
+		if (now - lastReconnectAttempt >= 5000) {
+			lastReconnectAttempt = now;
+			reconnectMQTT();
+		}
+	}
+	else {
+		metrics.mqttConnected = true;
+	}
+
+	updateMetrics();
+}
+
+void NetworkManager::stop() {
+	if (!initialized) return;
+
+	logInfo("[NetworkManager] Stopping...");
+	disconnectMQTT();
+	disconnectWiFi();
+	initialized = false;
+}
+
+// ========================== WiFi Methods ==========================
+
+bool NetworkManager::connectWiFi() {
+	if (WiFi.status() == WL_CONNECTED) {
+		metrics.wifiConnected = true;
+		return true;
+	}
+
+	logInfo("[WiFi] Connecting to %s", config.wifi.ssid);
+	WiFi.begin(config.wifi.ssid, config.wifi.password);
+
+	unsigned long startTime = millis();
+	while (WiFi.status() != WL_CONNECTED) {
+		if (millis() - startTime > config.wifi.connectTimeoutMs) {
+			logError("[WiFi] Connection timeout");
+			metrics.connectAttempts++;
+			if (errorCallback) errorCallback("WiFi connection timeout");
+			return false;
+		}
+		delay(500);
+		Serial.print(".");
+	}
+
+	Serial.println();
+	metrics.wifiConnected = true;
+	metrics.localIP = WiFi.localIP();
+	metrics.rssi = WiFi.RSSI();
+
+	logInfo("[WiFi] Connected! IP: %s, RSSI: %d dBm", WiFi.localIP().toString().c_str(), WiFi.RSSI());
+
+	// Don't call connection callback here, only on MQTT connection
+	return true;
+}
+
+void NetworkManager::disconnectWiFi() {
+	WiFi.disconnect();
+	metrics.wifiConnected = false;
+	logInfo("[WiFi] Disconnected");
+}
+
+bool NetworkManager::isWiFiConnected() const {
+	return WiFi.status() == WL_CONNECTED;
+}
+
+// ========================== MQTT Methods ==========================
+
+bool NetworkManager::connectMQTT() {
+	if (mqttClient->connected()) {
+		metrics.mqttConnected = true;
+		return true;
+	}
+
+	logInfo("[MQTT] Connecting to %s:%d", config.mqtt.server, config.mqtt.port);
+
+	// Connect with username and password
+	if (mqttClient->connect(config.mqtt.clientId, config.mqtt.username, config.mqtt.password)) {
+		metrics.mqttConnected = true;
+		metrics.connectAttempts++;
+		logInfo("[MQTT] Connected!");
+
+		if (connectionCallback) connectionCallback(true);
+		return true;
+	}
+
+	metrics.connectAttempts++;
+	logError("[MQTT] Connection failed");
+	if (errorCallback) errorCallback("MQTT connection failed");
+	return false;
+}
+
+void NetworkManager::disconnectMQTT() {
+	if (mqttClient->connected()) {
+		mqttClient->disconnect();
+		metrics.mqttConnected = false;
+		metrics.disconnectCount++;
+		logInfo("[MQTT] Disconnected");
+	}
+}
+
+bool NetworkManager::isMQTTConnected() const {
+	return mqttClient->connected();
+}
+
+bool NetworkManager::subscribe(const char* topic) {
+	if (!mqttClient->connected()) {
+		logError("[MQTT] Not connected, cannot subscribe");
+		return false;
+	}
+
+	logInfo("[MQTT] Subscribing to: %s", topic);
+	bool result = mqttClient->subscribe(topic);
+
+	// Process any pending packets after subscribe
+	mqttClient->loop();
+
+	if (result) {
+		logInfo("[MQTT] Successfully subscribed to: %s", topic);
+		return true;
+	}
+
+	logError("[MQTT] Failed to subscribe to: %s", topic);
+	return false;
+}
+
+bool NetworkManager::unsubscribe(const char* topic) {
+	if (!mqttClient->connected()) {
+		logError("[MQTT] Not connected, cannot unsubscribe");
+		return false;
+	}
+
+	if (mqttClient->unsubscribe(topic)) {
+		logInfo("[MQTT] Unsubscribed from: %s", topic);
+		return true;
+	}
+
+	logError("[MQTT] Failed to unsubscribe from: %s", topic);
+	return false;
+}
+
+bool NetworkManager::publish(const char* topic, const char* payload) {
+	// Check if connected, but don't force reconnection here
+	if (!mqttClient->connected()) {
+		logError("[MQTT] Not connected, cannot publish");
+		return false;
+	}
+
+	requestStartTime = millis();
+
+	// Publish with QoS 0 (default)
+	if (mqttClient->publish(topic, payload)) {
+		metrics.messagesSent++;
+		metrics.lastMessageTime = millis();
+		logInfo("[MQTT] Published to %s", topic);
+		return true;
+	}
+
+	logError("[MQTT] Failed to publish to %s", topic);
+	return false;
+}
+
+bool NetworkManager::ensureConnected() {
+	if (mqttClient->connected()) {
+		return true;
+	}
+
+	// Try to reconnect immediately if not connected
+	logInfo("[MQTT] Connection lost, reconnecting...");
+	return connectMQTT();
+}
+
+
+// ========================== Callbacks ==========================
+
+void NetworkManager::onMessage(MessageCallback callback) {
+	messageCallback = callback;
+}
+
+void NetworkManager::onConnection(ConnectionCallback callback) {
+	connectionCallback = callback;
+}
+
+void NetworkManager::onError(ErrorCallback callback) {
+	errorCallback = callback;
+}
+
+// ========================== Metrics and Status ==========================
+
+NetworkMetrics NetworkManager::getMetrics() const {
+	return metrics;
+}
+
+void NetworkManager::printStatus() const {
+	Serial.println("\n===== Network Status =====");
+	Serial.printf("WiFi: %s | IP: %s | RSSI: %d dBm\n", metrics.wifiConnected ? "Connected" : "Disconnected", metrics.localIP.toString().c_str(), metrics.rssi);
+	Serial.printf("MQTT: %s | Server: %s:%d\n", metrics.mqttConnected ? "Connected" : "Disconnected", config.mqtt.server, config.mqtt.port);
+	Serial.printf("Messages - Sent: %d | Received: %d\n", metrics.messagesSent, metrics.messagesReceived);
+	Serial.printf("Uptime: %d seconds | Reconnects: %d\n", metrics.uptime, metrics.connectAttempts);
+	Serial.println("========================\n");
+}
+
+String NetworkManager::getStatusJSON() const {
+	JsonDocument doc;
+
+	doc["wifi"]["connected"] = metrics.wifiConnected;
+	doc["wifi"]["ip"] = metrics.localIP.toString();
+	doc["wifi"]["rssi"] = metrics.rssi;
+
+	doc["mqtt"]["connected"] = metrics.mqttConnected;
+	doc["mqtt"]["server"] = config.mqtt.server;
+	doc["mqtt"]["port"] = config.mqtt.port;
+
+	doc["metrics"]["sent"] = metrics.messagesSent;
+	doc["metrics"]["received"] = metrics.messagesReceived;
+	doc["metrics"]["uptime"] = metrics.uptime;
+	doc["metrics"]["reconnects"] = metrics.connectAttempts;
+
+	String output;
+	serializeJsonPretty(doc, output);
+	return output;
+}
+
+// ========================== Configuration ==========================
+
+void NetworkManager::updateConfig(const NetworkConfig& cfg) {
+	config = cfg;
+	if (initialized) {
+		stop();
+		begin();
+	}
+}
+
+NetworkConfig NetworkManager::getConfig() const {
+	return config;
+}
+
+// ========================== Private Methods ==========================
+
+void NetworkManager::handleMQTTMessage(const char* topic, const byte* payload, unsigned int length) {
+	metrics.messagesReceived++;
+
+	unsigned long responseTime = 0;
+	if (requestStartTime > 0) {
+		responseTime = millis() - requestStartTime;
+		metrics.avgResponseTimeMs = (metrics.avgResponseTimeMs + responseTime) / 2;
+		requestStartTime = 0;
+	}
+
+	logInfo("[MQTT] Message on '%s' (latency: %dms)", topic, responseTime);
+
+	if (messageCallback) {
+		StaticJsonDocument<512> doc;
+		DeserializationError error = deserializeJson(doc, payload, length);
+
+		if (error) {
+			// If not JSON, create a simple payload
+			doc.clear();
+			String data;
+			data.reserve(length + 1);
+			for (unsigned int i = 0; i < length; i++) {
+				data += (char)payload[i];
+			}
+			doc["raw"] = data;
+		}
+
+		messageCallback(topic, doc, metrics);
+	}
+}
+
+void NetworkManager::updateMetrics() {
+	static unsigned long lastUpdate = 0;
+	unsigned long now = millis();
+
+	if (now - lastUpdate >= 1000) {
+		metrics.uptime = millis() / 1000;
+		metrics.rssi = WiFi.RSSI();
+		lastUpdate = now;
+	}
+}
+
+bool NetworkManager::reconnectMQTT() {
+	unsigned long now = millis();
+
+	if (now - lastReconnectAttempt >= config.mqtt.reconnectDelayMs) {
+		lastReconnectAttempt = now;
+
+		if (connectMQTT()) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+void NetworkManager::logInfo(const char* format, ...) const {
+	char buffer[256];
+	va_list args;
+	va_start(args, format);
+	vsnprintf(buffer, sizeof(buffer), format, args);
+	va_end(args);
+	Serial.println(buffer);
+}
+
+void NetworkManager::logError(const char* format, ...) const {
+	char buffer[256];
+	va_list args;
+	va_start(args, format);
+	vsnprintf(buffer, sizeof(buffer), format, args);
+	va_end(args);
+	Serial.print("[ERROR] ");
+	Serial.println(buffer);
+}
+
+// ========================== NetworkBuilder Implementation ==========================
+
+NetworkBuilder& NetworkBuilder::withWiFi(const char* ssid, const char* password) {
+	config.wifi.ssid = ssid;
+	config.wifi.password = password;
+	return *this;
+}
+
+NetworkBuilder& NetworkBuilder::withMQTT(const char* server, uint16_t port) {
+	config.mqtt.server = server;
+	config.mqtt.port = port;
+	return *this;
+}
+
+NetworkBuilder& NetworkBuilder::withMQTTAuth(const char* username, const char* password) {
+	config.mqtt.username = username;
+	config.mqtt.password = password;
+	return *this;
+}
+
+NetworkBuilder& NetworkBuilder::withClientId(const char* clientId) {
+	config.mqtt.clientId = clientId;
+	return *this;
+}
+
+NetworkBuilder& NetworkBuilder::withSSL(bool useSSL) {
+	config.mqtt.useSSL = useSSL;
+	return *this;
+}
+
+NetworkBuilder& NetworkBuilder::withTimeouts(uint32_t wifiTimeout, uint32_t mqttReconnectDelay) {
+	config.wifi.connectTimeoutMs = wifiTimeout;
+	config.mqtt.reconnectDelayMs = mqttReconnectDelay;
+	return *this;
+}
+
+NetworkManager* NetworkBuilder::build() {
+	return new NetworkManager(config);
+}
